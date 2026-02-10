@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Participant Page</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #0a0a0a;
+            color: white; 
+            text-align: center; 
+            padding: 20px; 
+            margin: 0;
+        }
+        
+        /* Floating Price Header */
+        .price-header { 
+         position: sticky; 
+         top: 0; 
+         background: #111; 
+         padding: 20px; 
+         z-index: 1000; 
+         border-bottom: 2px solid #00ffa6;
+}
+        
+        .current-price { 
+            font-size: 2.8rem; 
+            color:#00ffa6; 
+            font-weight: bold; 
+            margin: 10px 0;
+            letter-spacing: 1px;
+        }
+        
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); 
+            gap: 30px; 
+            max-width: 1200px; 
+            margin: 50px auto; 
+            padding: 0 20px;
+        }
+        
+        .card { 
+            background: rgba(30, 30, 30, 0.6);
+            padding: 18px; 
+            border-radius: 16px; 
+            border: 1px solid rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 8px 20px #00ffa6;
+
+        }
+        
+        img { 
+            width: 100%; 
+            height: 200px; 
+            object-fit: cover; 
+            border-radius: 12px; 
+            margin-bottom: 15px; 
+        }
+        
+        h3 { 
+            margin: 12px 0; 
+            color: #e0e0e0;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+        
+        input { 
+            padding: 10px; 
+            width: 80%; 
+            border-radius: 8px; 
+            border: 1px solid rgba(255,255,255,0.15); 
+            background: rgba(0,0,0,0.4); 
+            color: white;
+            margin-bottom: 12px; 
+            text-align: center; 
+            font-size: 1rem;
+        }
+        
+        input:focus { 
+            outline: none; 
+            border-color:#00ffa6; 
+        }
+        
+       button { 
+       padding: 12px 25px; 
+       background:#00ffa6; 
+       color: #000;
+       border: none; 
+       border-radius: 8px; 
+       cursor: pointer; 
+       font-weight: bold; 
+       width: 100%; 
+       font-size: 1rem;
+       text-transform: uppercase;
+       letter-spacing: 1px;
+
+       /* Added for smooth pop-out effect */
+       transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+    button:hover { 
+    transform: scale(1.05); /* slightly enlarges */
+    box-shadow: 0 4px 10px rgba(0, 255, 166, 0.35);
+
+}
+
+        #wallet { 
+            color: #aaa; 
+            font-size: 0.9rem; 
+            margin-top: 15px; 
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="price-header">
+        <div style="font-size: 0.85rem; letter-spacing: 2px; color: #888;">
+            CURRENT PRICE PER NFT
+        </div>
+        <div id="priceDisplay" class="current-price">Loading...</div>
+        <div style="font-size: 0.8rem; color: #666;">
+            (Refunds happen automatically)
+        </div>
+    </div>
+
+    <p id="wallet">Connecting Wallet...</p>
+
+    <div id="grid" class="grid"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    
+    <script>
+    // --- 1. CONFIGURATION ---
+    const ADDRESS = "0x23f96ad8ab1f593c7258f347cfacac0071c52b0e"; 
+    const IPFS_CID = "bafybeibpfzfsqsc24tjxixyblruxel2yjmt7622mar77t55fin5xlbnd24"; 
+
+    const ABI = [
+        "function buy(uint256 _id) external payable",
+        "function startAt() public view returns (uint256)",
+        "function ended() public view returns (bool)",
+        "function getOwner(uint256 _id) external view returns (address)"
+    ];
+
+    // AUCTION CONSTANTS (Must match Solidity)
+    const START_PRICE = 0.05; 
+    const FLOOR_PRICE = 0.02;
+    const DISCOUNT_RATE = 0.0001; 
+
+    let contract, startTimestamp;
+    let currentSafePrice = "0.05"; // Default backup price
+
+    // --- 2. INITIALIZATION ---
+    async function init() {
+        if (!window.ethereum) {
+            document.getElementById("wallet").innerText = "Please Install MetaMask!";
+            return alert("Please install MetaMask");
+        }
+
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        
+        try {
+            await provider.send("eth_requestAccounts", []);
+            const signer = provider.getSigner();
+            const address = await signer.getAddress();
+            
+            document.getElementById("wallet").innerText = "Connected: " + address;
+
+            contract = new ethers.Contract(ADDRESS, ABI, signer);
+
+            // Fetch Start Time
+            const startAtBN = await contract.startAt();
+            startTimestamp = startAtBN.toNumber();
+
+            // Start Logic
+            setInterval(updatePriceTicker, 1000); 
+            generateGrid();
+            
+        } catch (err) {
+            console.error(err);
+            document.getElementById("wallet").innerText = "Connection Failed";
+        }
+    }
+
+    // --- 3. LIVE PRICE TRACKER ---
+    function updatePriceTicker() {
+        if (!startTimestamp || startTimestamp === 0) {
+            document.getElementById("priceDisplay").innerText = "NOT STARTED";
+            return;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        let timeElapsed = now - startTimestamp;
+        
+        // Calculate Real Price
+        let price = START_PRICE - (DISCOUNT_RATE * timeElapsed);
+        if (price < FLOOR_PRICE) price = FLOOR_PRICE;
+        
+        // Update Global Variable for default bids
+        currentSafePrice = price.toFixed(4);
+
+        // Update UI
+        document.getElementById("priceDisplay").innerText = currentSafePrice + " ETH";
+        
+        // Update placeholders
+        const inputs = document.querySelectorAll('input[type="number"]');
+        inputs.forEach(input => {
+            if(!input.value) input.placeholder = currentSafePrice;
+        });
+    }
+
+    // --- 4. GRID GENERATOR ---
+    function generateGrid() {
+        const grid = document.getElementById("grid");
+        
+        // Loop through all NFTs and create cards
+        for (let i = 1; i < 39; i++) {
+            let imgUrl = `https://gateway.pinata.cloud/ipfs/${IPFS_CID}/${i}.png`;
+
+            grid.innerHTML += `
+                    <div class="card" id="card-${i}">
+                    <img src="${imgUrl}" onerror="this.src='https://via.placeholder.com/200?text=Image+Error'">
+                    <h3>NFT #${i}</h3>
+                    
+                    <input type="number" id="bid-${i}" placeholder="${currentSafePrice}" step="0.001">
+                    
+                    <button onclick="buyItem(${i})">BUY NOW</button>
+                </div>`;
+        }
+    }
+
+    // --- 5. STABLE BUY FUNCTION ---
+    async function buyItem(id) {
+        try {
+            const inputField = document.getElementById(`bid-${id}`);
+            let userBid = inputField.value;
+
+            // If empty, use a slightly higher price to be safe and STABLE
+            if (!userBid) {
+                // We add 0.001 buffer to the current displayed price ensures it doesn't fail
+                // But it sends a FIXED number so MetaMask doesn't jump.
+                userBid = (parseFloat(currentSafePrice) + 0.002).toFixed(4);
+            }
+
+            console.log(`Sending Stable Bid: ${userBid} ETH`);
+
+            const priceInWei = ethers.utils.parseEther(userBid);
+
+            // Send Transaction
+            const tx = await contract.buy(id, { value: priceInWei });
+            
+            // Show Feedback
+            const btn = document.querySelector(`#card-${id} button`) || document.activeElement;
+            const originalText = btn.innerText;
+            btn.innerText = "PROCESSING...";
+            btn.disabled = true;
+
+            alert("Transaction Sent! Please wait for confirmation...");
+            
+            await tx.wait();
+            
+            alert(`SUCCESS! You are the owner of NFT #${id}`);
+            btn.innerText = "OWNED";
+            
+        } catch (err) {
+            console.error(err);
+            // Re-enable button on error
+            const btn = document.activeElement;
+            if(btn) {
+                btn.innerText = "BUY NOW";
+                btn.disabled = false;
+            }
+            alert("Error: " + (err.reason || err.message || "Transaction Failed"));
+        }
+    }
+
+    // Start App
+    init();
+    </script>
+</body>
+</html>
