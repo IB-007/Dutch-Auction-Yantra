@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Panel</title>
+    <style>
+        body { background:#0f0f0f; color:white; text-align:center; font-family:sans-serif; padding:40px; }
+        
+        /* Status Badge Styling */
+        .status-box { padding: 20px; border: 2px solid #333; display: inline-block; border-radius: 10px; margin-bottom: 20px; }
+        .live { color: #00ff88; font-weight: bold; }
+        .ended { color: #ff4444; font-weight: bold; }
+        .waiting { color: #ffbb00; font-weight: bold; }
+
+        button { padding:15px 30px; margin:10px; font-size:18px; background:#444; color:white; border:none; border-radius:8px; cursor:pointer; transition: 0.3s; }
+        button:hover { background: #666; }
+        .btn-start { background: #00e676; color: black; }
+        .btn-end { background: #ff1744; }
+    </style>
+</head>
+<body>
+
+    <h1>👑 Admin Panel</h1>
+    <p id="wallet">Connecting...</p>
+
+    <div class="status-box">
+        CURRENT STATUS: <span id="auctionStatus" class="waiting">LOADING...</span>
+    </div>
+    <br>
+
+    <button class="btn-start" onclick="startAuction()">▶ Start Auction</button>
+    <button class="btn-end" onclick="endAuction()">⏹ End Auction</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <script>
+    const ADDRESS = "0x76cc6b34df09e25881ecfbb5c49a70ceee92be70";
+    
+    // We need more functions in ABI to check status
+    const ABI = [
+        "function startAuction() external",
+        "function endAuction() external",
+        "function startAt() public view returns (uint256)",
+        "function ended() public view returns (bool)"
+    ];
+
+    let contract;
+
+    async function init() {
+        if (!window.ethereum) return alert("Install MetaMask");
+
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        const signer = provider.getSigner();
+        const address = await signer.getAddress();
+
+        document.getElementById("wallet").innerText = "Admin: " + address;
+        contract = new ethers.Contract(ADDRESS, ABI, signer);
+
+        // Check Status immediately
+        checkStatus();
+    }
+
+    async function checkStatus() {
+        try {
+            const startAt = await contract.startAt();
+            const ended = await contract.ended();
+            const statusText = document.getElementById("auctionStatus");
+
+            if (ended) {
+                statusText.innerText = "ENDED";
+                statusText.className = "ended";
+            } else if (startAt.eq(0)) {
+                statusText.innerText = "NOT STARTED";
+                statusText.className = "waiting";
+            } else {
+                statusText.innerText = "🟢 LIVE NOW";
+                statusText.className = "live";
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    async function startAuction() {
+        try {
+            const tx = await contract.startAuction();
+            await tx.wait();
+            alert("Auction Started!");
+            checkStatus(); // Refresh status
+        } catch (err) { alert(err.reason || err.message); }
+    }
+
+    async function endAuction() {
+        try {
+            const tx = await contract.endAuction();
+            await tx.wait();
+            alert("Auction Ended!");
+            checkStatus(); // Refresh status
+        } catch (err) { alert(err.reason || err.message); }
+    }
+
+    init();
+    </script>
+</body>
+</html>
