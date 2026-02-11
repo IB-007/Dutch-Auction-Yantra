@@ -51,7 +51,23 @@
         .card:hover {
             transform: translateY(-8px);
             box-shadow: 0 8px 20px #00ffa6;
+        }
 
+        .card.sold {
+            opacity: 0.5;
+            pointer-events: none;
+            position: relative;
+        }
+
+        .sold-banner {
+            background: #ff1744;
+            color: white;
+            padding: 8px 0;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+            margin-top: 10px;
         }
         
         img { 
@@ -137,7 +153,7 @@
     
     <script>
     // --- 1. CONFIGURATION ---
-    const ADDRESS = "0x23f96ad8ab1f593c7258f347cfacac0071c52b0e"; 
+    const ADDRESS = "0x76cc6b34df09e25881ecfbb5c49a70ceee92be70";
     const BLOB_BASE_URL = "https://0p1sbcchxuav3md3.public.blob.vercel-storage.com/nfts";
 
     const ABI = [
@@ -215,9 +231,9 @@
     }
 
     // --- 4. GRID GENERATOR ---
-    function generateGrid() {
+    async function generateGrid() {
         const grid = document.getElementById("grid");
-        
+
         // Loop through all NFTs and create cards
         for (let i = 1; i <= 58; i++) {
             let imgUrl = `${BLOB_BASE_URL}/${i}.png`;
@@ -226,12 +242,33 @@
                     <div class="card" id="card-${i}">
                     <img src="${imgUrl}" onerror="this.src='https://via.placeholder.com/200?text=Image+Error'">
                     <h3>NFT #${i}</h3>
-                    
+
                     <input type="number" id="bid-${i}" placeholder="${currentSafePrice}" step="0.001">
-                    
+
                     <button onclick="buyItem(${i})">BUY NOW</button>
                 </div>`;
         }
+
+        // Check ownership for all NFTs and mark sold ones
+        for (let i = 1; i <= 58; i++) {
+            try {
+                const owner = await contract.getOwner(i);
+                if (owner !== ethers.constants.AddressZero) {
+                    markAsSold(i);
+                }
+            } catch (e) { console.error(`Error checking NFT #${i}:`, e); }
+        }
+    }
+
+    function markAsSold(id) {
+        const card = document.getElementById(`card-${id}`);
+        if (!card || card.classList.contains('sold')) return;
+        card.classList.add('sold');
+        const input = card.querySelector('input');
+        const btn = card.querySelector('button');
+        if (input) input.remove();
+        if (btn) { btn.remove(); }
+        card.innerHTML += '<div class="sold-banner">SOLD</div>';
     }
 
     // --- 5. STABLE BUY FUNCTION ---
@@ -263,9 +300,9 @@
             alert("Transaction Sent! Please wait for confirmation...");
             
             await tx.wait();
-            
+
             alert(`SUCCESS! You are the owner of NFT #${id}`);
-            btn.innerText = "OWNED";
+            markAsSold(id);
             
         } catch (err) {
             console.error(err);
